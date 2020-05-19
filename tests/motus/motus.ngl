@@ -1,5 +1,5 @@
 ngless "1.1"
-import "motus" version "0.1"
+import "motus" version "1.0"
 
 input = paired('input.1.fq.gz', 'input.2.fq.gz')
 
