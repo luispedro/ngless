@@ -34,11 +34,7 @@ import           Control.Monad.Writer
 import Data.FastQ
 import Data.Sam
 import FileOrStream
-
-newtype Variable = Variable T.Text
-    deriving (Eq, Ord, Show)
-mkVariable = Variable
-varName (Variable v) = v
+import Variable
 
 newtype FuncName = FuncName { unwrapFuncName :: T.Text }
     deriving (Eq, Ord)
@@ -143,14 +139,14 @@ data OptimizedExpression =
     deriving (Eq, Ord, Show)
 
 instance Show Expression where
-    show (Lookup (Just t) (Variable v)) = "Lookup '"++T.unpack v++"' as "++show t
-    show (Lookup Nothing (Variable v)) = "Lookup '"++T.unpack v++"' (type unknown)"
+    show (Lookup (Just t) v) = "Lookup '"++T.unpack (varName v)++"' as "++show t
+    show (Lookup Nothing v) = "Lookup '"++T.unpack (varName v)++"' (type unknown)"
     show (ConstStr t) = show t
     show (ConstInt n) = show n
     show (ConstDouble f) = show f
     show (ConstBool b) = show b
     show (ConstSymbol t) = "{"++T.unpack t++"}"
-    show (BuiltinConstant (Variable v)) = T.unpack v
+    show (BuiltinConstant v) = T.unpack $ varName v
     show (ListExpression e) = show e
     show Continue = "continue"
     show Discard = "discard"
@@ -159,7 +155,7 @@ instance Show Expression where
     show (BinaryOp op a b) = "BinaryOp" ++ "(" ++ show a ++ " -" ++ show op ++ "- " ++ show b ++ ")"
     show (Condition c a b) = "if ["++show c ++"] then {"++show a++"} else {"++show b++"}"
     show (IndexExpression a ix) = show a ++ "[" ++ show ix ++ "]"
-    show (Assignment (Variable v) a) = T.unpack v++" = "++show a
+    show (Assignment v a) = T.unpack (varName v)++" = "++show a
     show (FunctionCall fname a args block) = show fname ++ "(" ++ show a ++ showArgs args ++ ")"
                                     ++ (case block of
                                         Nothing -> ""
@@ -169,7 +165,7 @@ instance Show Expression where
     show (Optimized se) = "Optimized (" ++ show se ++ ")"
 
 showArgs [] = ""
-showArgs ((Variable v, e):args) = "; "++T.unpack v++"="++show e++showArgs args
+showArgs ((v, e):args) = "; "++T.unpack (varName v)++"="++show e++showArgs args
 
 staticValue :: Expression -> Maybe NGLessObject
 staticValue (ConstStr s) = Just $ NGOString s
