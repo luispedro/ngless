@@ -32,7 +32,7 @@ import Utils.Suggestion
 import Utils.Utils
 
 
-type TypeMap = Map.Map T.Text NGLType
+type TypeMap = Map.Map Variable NGLType
 type TypeMSt = StateT (Int, TypeMap)        -- ^ Current line & current type map (type map is inferred top-to-bottom)
                 (ExceptT NGError            -- ^ to enable early exit for certain types of error
                     (ReaderT [Module]       -- ^ the modules passed in (fixed)
@@ -46,7 +46,7 @@ checktypes mods script@(Script _ exprs) = let
             addmod :: TypeMap -> Module -> TypeMap
             addmod tm m = foldl' addconst tm (modConstants m)
             addconst tm (name, val) = case typeOfObject val of
-                Just t -> Map.insert name t tm
+                Just t -> Map.insert (mkVariable name) t tm
                 Nothing -> tm
             w = runExceptT (runStateT (inferScriptM exprs) (0,initial))
     in case runWriter (runReaderT w mods) of
@@ -79,7 +79,7 @@ inferScriptM ((lno,e):es) = modify (first (const lno)) >> inferM e >> inferScrip
 
 inferM :: Expression -> TypeMSt ()
 inferM (Sequence es) = inferM `mapM_` es
-inferM (Assignment (Variable v) expr) = do
+inferM (Assignment v expr) = do
     ltype <- envLookup Nothing v
     mrtype <- nglTypeOf expr
     check_assignment ltype mrtype
@@ -91,7 +91,7 @@ inferM e = void (nglTypeOf e)
 
 inferBlock :: FuncName -> Maybe Block -> TypeMSt ()
 inferBlock _ Nothing = return ()
-inferBlock (FuncName f) (Just (Block (Variable v) es)) = case f of
+inferBlock (FuncName f) (Just (Block v es)) = case f of
         "preprocess" -> inferBlock' NGLRead
         "select" -> inferBlock' NGLMappedRead
         _ -> do
@@ -102,7 +102,7 @@ inferBlock (FuncName f) (Just (Block (Variable v) es)) = case f of
             envInsert v btype
             inferM es
 
-envLookup :: Maybe NGLType -> T.Text -> TypeMSt (Maybe NGLType)
+envLookup :: Maybe NGLType -> Variable -> TypeMSt (Maybe NGLType)
 envLookup Nothing v = envLookup' v
 envLookup mt@(Just t) v = envLookup' v >>= \case
         Nothing -> return mt
@@ -110,24 +110,24 @@ envLookup mt@(Just t) v = envLookup' v >>= \case
             | t == t' -> return mt
             | otherwise -> do
                 errorInLineC ["Incompatible types detected for variable '"
-                                , T.unpack v, "': previously assigned to type "
+                                , T.unpack $ varName v, "': previously assigned to type "
                                 , show t, ", now being detected as ", show t']
                 return mt
 envLookup' v = liftM2 (<|>)
                     (constantLookup v)
                     (Map.lookup v . snd <$> get)
 
-constantLookup :: T.Text -> TypeMSt (Maybe NGLType)
+constantLookup :: Variable -> TypeMSt (Maybe NGLType)
 constantLookup v = do
     moduleBuiltins <- concatMap modConstants <$> ask
-    case filter ((==v) . fst) moduleBuiltins of
+    case filter ((==v) . mkVariable . fst) moduleBuiltins of
         [] -> return Nothing
         [(_,r)] -> return $ typeOfObject r
         _ -> do
-            errorInLineC ["Multiple matches for constant: ", T.unpack v]
+            errorInLineC ["Multiple matches for constant: ", T.unpack $ varName v]
             cannotContinue
 
-envInsert :: T.Text -> NGLType -> TypeMSt ()
+envInsert :: Variable -> NGLType -> TypeMSt ()
 envInsert v t = modify $ second (Map.insert v t)
 
 check_assignment :: Maybe NGLType -> Maybe NGLType -> TypeMSt ()
@@ -141,8 +141,8 @@ check_assignment a b = when (a /= b)
 nglTypeOf :: Expression -> TypeMSt (Maybe NGLType)
 nglTypeOf (FunctionCall f arg args b) = inferBlock f b *> checkFuncKwArgs f args *> checkFuncUnnamed f arg
 nglTypeOf (MethodCall m self arg args) = checkmethodargs m args *> checkmethodcall m self arg
-nglTypeOf (Lookup mt (Variable v)) = envLookup mt v
-nglTypeOf (BuiltinConstant (Variable v)) = return (typeOfConstant v)
+nglTypeOf (Lookup mt v) = envLookup mt v
+nglTypeOf (BuiltinConstant v) = return (typeOfConstant (varName v))
 nglTypeOf (ConstStr _) = return (Just NGLString)
 nglTypeOf (ConstInt _) = return (Just NGLInteger)
 nglTypeOf (ConstDouble _) = return (Just NGLDouble)
@@ -325,13 +325,13 @@ checkFuncKwArgs f args = do
 
 
 check1arg :: String -> [ArgInformation] -> (Variable, Expression) -> TypeMSt ()
-check1arg ferr arginfo (Variable v, e) = do
+check1arg ferr arginfo (v, e) = do
     eType <- nglTypeOf e
-    let ainfo = find ((==v) . argName) arginfo
+    let ainfo = find ((==varName v) . argName) arginfo
     case (ainfo,eType) of
         (Nothing, _) -> errorInLineC $
-            ["Bad argument '", T.unpack v, "' for ",  ferr, ".\n"
-            ,T.unpack $ suggestionMessage v (argName <$> arginfo)
+            ["Bad argument '", T.unpack (varName v), "' for ",  ferr, ".\n"
+            ,T.unpack $ suggestionMessage (varName v) (argName <$> arginfo)
             ,"\nThis function takes the following arguments:\n"]
             ++ map ((\aname -> "\t"++aname++"\n") . T.unpack . argName) arginfo
         (_, Nothing) -> return () -- Could not infer type of argument. Maybe an error, but maybe not
@@ -371,7 +371,7 @@ checkmethodargs m args = do
         ainfo <- methodKwargsInfo <$> findMethodInfo m
         forM_ args (check1arg (concat ["method '", show m, "'"]) ainfo)
         forM_ (filter argRequired ainfo) $ \ai ->
-            case filter (\(Variable v,_) -> v == argName ai) args of
+            case filter (\(v,_) -> varName v == argName ai) args of
                 [_] -> return ()
                 [] -> errorInLineC ["Required argument ", T.unpack (argName ai), " is missing in method call ", show m, "."]
                 _ -> error "This should never happen: multiple arguments with the same name should have been caught before"
@@ -380,7 +380,7 @@ addTypes :: TypeMap -> [(Int, Expression)] -> NGLess [(Int,Expression)]
 addTypes tmap exprs = mapM (secondM (runNGLess . recursiveTransform addTypes')) exprs
     where
         addTypes' :: Expression -> NGLess Expression
-        addTypes' (Lookup Nothing v@(Variable n)) = case Map.lookup n tmap of
+        addTypes' (Lookup Nothing v) = case Map.lookup v tmap of
             t@(Just _) -> return $ Lookup t v
-            Nothing -> throwScriptError ("Could not assign type to variable '" ++ show n ++ "'.")
+            Nothing -> throwScriptError ("Could not assign type to variable '" ++ show (varName v) ++ "'.")
         addTypes' e = return e

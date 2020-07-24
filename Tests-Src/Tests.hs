@@ -16,9 +16,7 @@ import Test.Framework.Providers.HUnit
 import Text.Parsec (parse)
 import Text.Parsec.Combinator (eof)
 
-import System.Directory (removeDirectoryRecursive
-                        ,doesFileExist
-                        )
+import System.Directory (removeDirectoryRecursive)
 import qualified Data.Vector.Storable as VS
 import qualified Data.ByteString.Char8 as B
 
@@ -249,11 +247,11 @@ case_recursiveAnalyze = execState (recursiveAnalyse countFcalls expr) 0 @?= (1 :
         countFcalls _ = return ()
 
         expr = Assignment
-                    (Variable "varname")
+                    (mkVariable "varname")
                     (FunctionCall (FuncName "count")
-                        (Lookup Nothing (Variable "mapped"))
-                        [(Variable "features", ListExpression [ConstStr "seqname"])
-                            ,(Variable "multiple", ConstSymbol "all1")]
+                        (Lookup Nothing (mkVariable "mapped"))
+                        [(mkVariable "features", ListExpression [ConstStr "seqname"])
+                            ,(mkVariable "multiple", ConstSymbol "all1")]
                         Nothing)
 
 

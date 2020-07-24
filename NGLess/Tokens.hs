@@ -103,7 +103,7 @@ word = try $ do
         "False" -> pure (TExpr $ ConstBool False)
         _
             | k `elem` reservedwords -> TReserved <$> k'
-            | k `elem` constants -> TExpr . BuiltinConstant . Variable <$> k'
+            | k `elem` constants -> TExpr . BuiltinConstant . mkVariable <$> k'
             | otherwise -> TWord <$> k'
 
 reservedwords =

@@ -102,7 +102,7 @@ wrapPrint (Script v sc) = Script v <$> wrap sc
             | wrapable e = return [(lno,addPrint e)]
             | otherwise = throwScriptError "Cannot add write() statement at the end of script (the script cannot terminate with a print/write call)"
         wrap (e:es) = wrap es >>= return . (e:)
-        addPrint e = FunctionCall (FuncName "write") e [(Variable "ofile", BuiltinConstant (Variable "STDOUT"))] Nothing
+        addPrint e = FunctionCall (FuncName "write") e [(mkVariable "ofile", BuiltinConstant (mkVariable "STDOUT"))] Nothing
 
         wrapable (FunctionCall (FuncName f) _ _ _)
             | f `elem` ["print", "write"] = False

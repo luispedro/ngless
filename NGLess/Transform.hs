@@ -201,7 +201,7 @@ writeToMove' blocked ((lno,expr):rest) = (lno, addMove toRemove expr):writeToMov
         addMove dead = pureRecursiveTransform addMove'
             where
                 addMove' (FunctionCall f@(FuncName "write") e@(Lookup _ v) args b)
-                    | v `elem` dead = FunctionCall f e ((Variable "__can_move", ConstBool True):args) b
+                    | v `elem` dead = FunctionCall f e ((mkVariable "__can_move", ConstBool True):args) b
                 addMove' e = e
 
 -- | Variables used in calling the function func
@@ -222,7 +222,7 @@ qcInPreprocess ((lno,expr):rest) = case fastQVar expr of
         Just (fname, v) -> if not $ canQCPreprocessTransform v rest
                     then ((lno,expr):) <$> qcInPreprocess rest
                     else do
-                        let expr' = addArgument fname (Variable "__perform_qc", ConstBool False) expr
+                        let expr' = addArgument fname (mkVariable "__perform_qc", ConstBool False) expr
                             rest' = rewritePreprocess v rest
                         outputListLno' TraceOutput ["Transformation for QC triggered for variable ", show v, " on line ", show lno, "."]
                         ((lno, expr'):) <$> qcInPreprocess rest'
@@ -231,7 +231,7 @@ rewritePreprocess _ [] = [] -- this should never happen
 rewritePreprocess v ((lno,expr):rest) = case expr of
     Assignment t (FunctionCall f@(FuncName "preprocess") e@(Lookup _ v') args b)
         | v == v' ->
-                let expr' = FunctionCall f e ((Variable "__input_qc", ConstBool True):args) b
+                let expr' = FunctionCall f e ((mkVariable "__input_qc", ConstBool True):args) b
                     in (lno,Assignment t expr'):rest
     _ -> (lno,expr):rewritePreprocess v rest
 
@@ -271,8 +271,8 @@ ifLenDiscardSpecial = pureTransform $ \case
 
 substrimReassign :: [(Int, Expression)] -> NGLessIO [(Int, Expression)]
 substrimReassign = pureTransform $ \case
-        (Assignment v (FunctionCall (FuncName "substrim") (Lookup _ v') [(Variable "min_quality", ConstInt mq)] Nothing))
-            | v == v' -> Optimized (SubstrimReassign v (fromInteger mq))
+        (Assignment v (FunctionCall (FuncName "substrim") (Lookup _ v') [(mqName, ConstInt mq)] Nothing))
+            | varName mqName == "min_quality" && v == v' -> Optimized (SubstrimReassign v (fromInteger mq))
         e -> e
 
 
@@ -324,7 +324,7 @@ addFileChecks' checkFname tag ((lno,e):rest) = do
         checkFileExpression complete = FunctionCall
                             (FuncName checkFname)
                             complete
-                            [(Variable "original_lno", ConstInt (toInteger lno))]
+                            [(mkVariable "original_lno", ConstInt (toInteger lno))]
                             Nothing
 
         -- returns the variables used and expressions that depend on them
@@ -335,7 +335,7 @@ addFileChecks' checkFname tag ((lno,e):rest) = do
                     extractExpressions (Just expr)
                 forM_ (funcKwArgs finfo) $ \ainfo ->
                     when (tag `elem` argChecks ainfo) $
-                        extractExpressions (lookup (Variable $ argName ainfo) args)
+                        extractExpressions (lookup (mkVariable $ argName ainfo) args)
             Nothing -> throwShouldNotOccur ("Transform.getFileExpressions: Unknown function: " ++ show f ++ ". This should have been caught before")
         getFileExpressions _ _ = return ()
 
@@ -351,7 +351,7 @@ addFileChecks' checkFname tag ((lno,e):rest) = do
         validVariables (Lookup _ v) = [v]
         validVariables (BinaryOp _ re le) = validVariables re ++ validVariables le
         validVariables (ConstStr _) = []
-        validVariables _ = [Variable "this", Variable "wont", Variable "work"] -- this causes the caller to bailout
+        validVariables _ = [mkVariable "this", mkVariable "wont", mkVariable "work"] -- this causes the caller to bailout
 
 -- | 'addIndexChecks' implements the following transformation
 --
@@ -386,8 +386,8 @@ addIndexChecks' (lno, e) =
         indexCheckExpr arr ix1 = FunctionCall
                             (FuncName "__check_index_access")
                             (Lookup Nothing arr)
-                            [(Variable "original_lno", ConstInt (toInteger lno))
-                            ,(Variable "index1", ix1)]
+                            [(mkVariable "original_lno", ConstInt (toInteger lno))
+                            ,(mkVariable "index1", ix1)]
                             Nothing
 
 -- Many checks can be generalize so that certain expressions generate a
@@ -505,8 +505,8 @@ addTemporaries = addTemporaries' 0
                 combineExpr pre (Lookup _ v) = case findDrop pre (isAssignTo v) of
                     Just (pre', Assignment _ e') -> combineExpr pre' e'
                     _ -> error "This is impossible"
-                combineExpr pre (Assignment v' (Lookup _ vt@(Variable t)))
-                    | T.isPrefixOf "temp$" t = case findDrop pre (isAssignTo vt) of
+                combineExpr pre (Assignment v' (Lookup _ vt))
+                    | T.isPrefixOf "temp$" (varName vt) = case findDrop pre (isAssignTo vt) of
                         Just (pre', Assignment _ e) -> pre' ++ [Assignment v' e]
                         _ -> error "Impossible [combineExpr2]"
                 combineExpr pre e' = pre ++ [e']
@@ -518,7 +518,7 @@ addTemporaries = addTemporaries' 0
                         then return e
                         else do
                             n <- get
-                            let v = Variable (T.pack $ "temp$"++show n)
+                            let v = mkVariable (T.pack $ "temp$"++show n)
                             put (n + 1)
                             tell [Assignment v e]
                             return (Lookup t v)
@@ -540,7 +540,7 @@ addOutputHash expr_lst = do
         nv <- ngleVersion <$> nglEnvironment
         modules <- loadedModules
         let modInfos = map modInfo modules
-            state0 = M.insert (Variable "ARGV") (T.pack "ARGV") M.empty
+            state0 = M.insert (mkVariable "ARGV") (T.pack "ARGV") M.empty
             versionString = show nv ++ show (sortOn modName modInfos)
         return $! evalState (mapM (secondM $ addOutputHash' versionString) expr_lst) state0
     where
@@ -553,21 +553,21 @@ addOutputHash expr_lst = do
                         FunctionCall f@(FuncName fname) oarg kwargs block
                             | fname `elem` ["collect", "write"] -> do
                                 h <- hashOf oarg
-                                return (FunctionCall f oarg ((Variable "__hash", ConstStr h):kwargs) block)
+                                return (FunctionCall f oarg ((mkVariable "__hash", ConstStr h):kwargs) block)
                         _ -> return e
             where
                 injectBlockVars :: Maybe Block -> M.Map Variable T.Text -> M.Map Variable T.Text
                 injectBlockVars Nothing m = m
-                injectBlockVars (Just (Block v@(Variable n) _)) m = M.insert v n m
+                injectBlockVars (Just (Block v _)) m = M.insert v (varName v) m
                 hashOf :: Expression -> State (M.Map Variable T.Text) T.Text
                 hashOf e@(FunctionCall _ _ _ block) = withState (injectBlockVars block) $ hashOf' e
                 hashOf e  = hashOf' e
 
                 hashOf' ex = do
                     expr' <- flip recursiveTransform ex $ \case
-                        Lookup t v@(Variable n) -> do
-                            h <- fromMaybe n <$> gets (M.lookup v)
-                            return $! Lookup t (Variable h)
+                        Lookup t v -> do
+                            h <- fromMaybe (varName v) <$> gets (M.lookup v)
+                            return $! Lookup t (mkVariable h)
                         e -> return e
                     return . T.pack . MD5.md5s . MD5.Str . (versionString ++) . show $ expr'
 
@@ -613,7 +613,7 @@ addUseNewer exprs = do
                     (MethodCall mname@(MethodName mname') arg0 arg1 kwargs)
                         | mname' `elem` ["filter", "allbest"] -> do
                             outputListLno' WarningOutput ["The filter() and allbest() methods have changed behaviour in NGLess 1.1. Now using old behaviour for compatibility, but, if possible, upgrade your version statement. This refers to how a corner case in computing match sizes/identities is handled and will have no practical impacts on almost all datasets."]
-                            return (MethodCall mname arg0 arg1 ((Variable "__version11_or_higher", ConstBool True):kwargs))
+                            return (MethodCall mname arg0 arg1 ((mkVariable "__version11_or_higher", ConstBool True):kwargs))
                     e' -> return e'
             mapM (secondM addUseNewer') exprs
 
@@ -626,7 +626,7 @@ addCountsCheck = return . genericCheckUpfloat countCheck
         buildCheck lno kwargs =
             FunctionCall
                 (FuncName "__check_count")
-                (BuiltinConstant (Variable "__VOID"))
-                ((Variable "original_lno", ConstInt (toInteger lno)):kwargs)
+                (BuiltinConstant (mkVariable "__VOID"))
+                ((mkVariable "original_lno", ConstInt (toInteger lno)):kwargs)
                 Nothing
         extractVars kwargs = concat (usedVariables . snd <$> kwargs)

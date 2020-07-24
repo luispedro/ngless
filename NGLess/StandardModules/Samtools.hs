@@ -1,4 +1,4 @@
-{- Copyright 2015-2019 NGLess Authors
+{- Copyright 2015-2020 NGLess Authors
  - License: MIT
  -}
 
@@ -114,7 +114,7 @@ sortOFormat' ((lno,e):es) = (lno,e'):sortOFormat' es
     where
         e' = case e of
             Assignment v (FunctionCall fname@(FuncName "samtools_sort") expr args Nothing)
-                | outputBam v es -> Assignment v (FunctionCall fname expr ((Variable "__output_bam", ConstBool True):args) Nothing)
+                | outputBam v es -> Assignment v (FunctionCall fname expr ((mkVariable "__output_bam", ConstBool True):args) Nothing)
             _ -> e
         outputBam _ [] = False
         outputBam v ((_,c):rest) = case c of
@@ -130,11 +130,11 @@ sortOFormat' ((lno,e):es) = (lno,e'):sortOFormat' es
         isOBam args = case oFormat args of
             Just "bam" -> True
             Just _ -> False
-            Nothing -> case lookup (Variable "ofile") args of
+            Nothing -> case lookup (mkVariable "ofile") args of
                 Nothing -> False
                 Just oname -> stringWillEndWith oname ".bam" == Just True
         oFormat :: [(Variable, Expression)] -> Maybe String
-        oFormat args = case lookup (Variable "format") args of
+        oFormat args = case lookup (mkVariable "format") args of
             Just (ConstSymbol "bam") -> Just "bam"
             Just _ -> Just "?"
             Nothing -> Nothing
@@ -164,7 +164,7 @@ checkUnique = passthrough $ \sc ->
                     _ -> return ()
             _ -> checkSorted lno v rs
         selectsUnique :: [(Variable, Expression)] -> Bool
-        selectsUnique = any $ \(Variable k,v) -> k == "keep_if" && hasUnique v
+        selectsUnique = any $ \(k,v) -> varName k == "keep_if" && hasUnique v
         hasUnique (ConstSymbol "unique") = True
         hasUnique (ListExpression vs) = any hasUnique vs
         hasUnique _ = False

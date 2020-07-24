@@ -99,7 +99,7 @@ checkReferencesExist (Script _ es) = flip checkRecursive es $ \case
 
 
 validateStrArg :: (T.Text -> ValidateIO ()) -> T.Text -> [(Variable,Expression)] -> [(Int,Expression)] -> ValidateIO ()
-validateStrArg f v args es = whenJust (lookup (Variable v) args) $ validateStrVal f es
+validateStrArg f v args es = whenJust (lookup (mkVariable v) args) $ validateStrVal f es
 
 validateStrVal :: (T.Text -> ValidateIO ()) -> [(Int,Expression)] -> Expression -> ValidateIO ()
 validateStrVal f _ (ConstStr v) = f v

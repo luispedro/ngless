@@ -52,7 +52,8 @@ extractARGVUsage e = evalCont $ callCC $ \exit -> do
                         recursiveAnalyse (extractARGVUsage' exit) e
                         return Nothing
     where
-        extractARGVUsage' exit (IndexExpression (Lookup _ (Variable "ARGV")) (IndexOne (ConstInt ix1))) = exit (Just ix1)
+        extractARGVUsage' exit (IndexExpression (Lookup _ var) (IndexOne (ConstInt ix1)))
+            | varName var == "ARGV" = exit (Just ix1)
         extractARGVUsage' _ _ = return ()
 
 extractAllARGVUsage :: Script -> [Integer]
@@ -62,7 +63,7 @@ extractOutput (Script _ body) = head $ mapMaybe  extractOutput' (snd <$> body)
     where
         extractOutput' :: Expression -> Maybe Integer
         extractOutput' (FunctionCall (FuncName "write") _ kwargs _) = do
-            ofile <- lookup (Variable "ofile") kwargs
+            ofile <- lookup (mkVariable "ofile") kwargs
             extractARGVUsage ofile
         extractOutput' _ = Nothing
 

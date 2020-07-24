@@ -34,41 +34,41 @@ case_parse_fastq = parseBody fastqcalls @?= fastqcall
 case_parse_paired = parseBody fastqcalls @?= fastqcall
     where
         fastqcalls = "paired(\"input.fq\", \"pair.fq\")"
-        fastqcall  = [FunctionCall (FuncName "paired") (ConstStr "input.fq") [(Variable "second", ConstStr "pair.fq")] Nothing]
+        fastqcall  = [FunctionCall (FuncName "paired") (ConstStr "input.fq") [(mkVariable "second", ConstStr "pair.fq")] Nothing]
 
 case_parse_count = parseBody countcalls @?= countcall
     where
         countcalls = "count(annotated, count={gene})"
-        countcall  = [FunctionCall (FuncName "count") (Lookup Nothing (Variable "annotated")) [(Variable "count", ConstSymbol "gene")] Nothing]
+        countcall  = [FunctionCall (FuncName "count") (Lookup Nothing (mkVariable "annotated")) [(mkVariable "count", ConstSymbol "gene")] Nothing]
 
 case_parse_count_mult_counts = parseBody countcalls @?= countcall
     where
         countcalls = "count(annotated, count=[{gene},{cds}])"
-        countcall  = [FunctionCall (FuncName "count") (Lookup Nothing (Variable "annotated")) [(Variable "count", ListExpression [ConstSymbol "gene", ConstSymbol "cds"])] Nothing]
+        countcall  = [FunctionCall (FuncName "count") (Lookup Nothing (mkVariable "annotated")) [(mkVariable "count", ListExpression [ConstSymbol "gene", ConstSymbol "cds"])] Nothing]
 
 case_parse_assignment =  parseBody "reads = \"something\"" @?=
-        [Assignment (Variable "reads") (ConstStr "something")]
+        [Assignment (mkVariable "reads") (ConstStr "something")]
 
 case_parse_sequence = parseBody seqs @?= seqr
     where
         seqs = "reads = 'something'\nreads = 'something'"
         seqr = [a,a]
-        a    = Assignment (Variable "reads") (ConstStr "something")
+        a    = Assignment (mkVariable "reads") (ConstStr "something")
 
 case_parse_num = parseBody nums @?= num
     where
         nums = "a = 0x10"
-        num  = [Assignment (Variable "a") (ConstInt 16)]
+        num  = [Assignment (mkVariable "a") (ConstInt 16)]
 
 case_parse_double = parseBody double_a_s @?= double_a
     where
         double_a_s = "d = 1.2"
-        double_a = [Assignment (Variable "d") (ConstDouble 1.2)]
+        double_a = [Assignment (mkVariable "d") (ConstDouble 1.2)]
 
 case_parse_bool = parseBody bools @?= bool
     where
         bools = "a = true"
-        bool  = [Assignment (Variable "a") (ConstBool True)]
+        bool  = [Assignment (mkVariable "a") (ConstBool True)]
 
 case_parse_if_else = parseBody blocks @?= block
     where
@@ -114,16 +114,16 @@ sample = lock1(readlines('input.txt'))
 input = fastq(sample)
 |]
 
-case_parse_list = parseText _listexpr "[a,b]" @?= ListExpression [Lookup Nothing (Variable "a"), Lookup Nothing (Variable "b")]
+case_parse_list = parseText _listexpr "[a,b]" @?= ListExpression [Lookup Nothing (mkVariable "a"), Lookup Nothing (mkVariable "b")]
 
-case_parse_indexexpr_11 = parseText _indexexpr "read[1:1]" @?= IndexExpression (Lookup Nothing (Variable "read")) (IndexTwo j1 j1)
-case_parse_indexexpr_10 = parseText _indexexpr "read[1:]"  @?= IndexExpression (Lookup Nothing (Variable "read")) (IndexTwo j1 Nothing)
-case_parse_indexexpr_01 = parseText _indexexpr "read[:1]"  @?= IndexExpression (Lookup Nothing (Variable "read")) (IndexTwo Nothing j1)
-case_parse_indexexpr_00 = parseText _indexexpr "read[:]"   @?= IndexExpression (Lookup Nothing (Variable "read")) (IndexTwo Nothing Nothing)
+case_parse_indexexpr_11 = parseText _indexexpr "read[1:1]" @?= IndexExpression (Lookup Nothing (mkVariable "read")) (IndexTwo j1 j1)
+case_parse_indexexpr_10 = parseText _indexexpr "read[1:]"  @?= IndexExpression (Lookup Nothing (mkVariable "read")) (IndexTwo j1 Nothing)
+case_parse_indexexpr_01 = parseText _indexexpr "read[:1]"  @?= IndexExpression (Lookup Nothing (mkVariable "read")) (IndexTwo Nothing j1)
+case_parse_indexexpr_00 = parseText _indexexpr "read[:]"   @?= IndexExpression (Lookup Nothing (mkVariable "read")) (IndexTwo Nothing Nothing)
 
-case_parse_indexexprone_1 = parseText _indexexpr "read[1]" @?= IndexExpression (Lookup Nothing (Variable "read")) (IndexOne (ConstInt 1))
-case_parse_indexexprone_2 = parseText _indexexpr "read[2]" @?= IndexExpression (Lookup Nothing (Variable "read")) (IndexOne (ConstInt 2))
-case_parse_indexexprone_var = parseText _indexexpr "read[var]" @?= IndexExpression (Lookup Nothing (Variable "read")) (IndexOne (Lookup Nothing (Variable "var")))
+case_parse_indexexprone_1 = parseText _indexexpr "read[1]" @?= IndexExpression (Lookup Nothing (mkVariable "read")) (IndexOne (ConstInt 1))
+case_parse_indexexprone_2 = parseText _indexexpr "read[2]" @?= IndexExpression (Lookup Nothing (mkVariable "read")) (IndexOne (ConstInt 2))
+case_parse_indexexprone_var = parseText _indexexpr "read[var]" @?= IndexExpression (Lookup Nothing (mkVariable "read")) (IndexOne (Lookup Nothing (mkVariable "var")))
 
 case_parse_cleanupindents_0 = tokcleanupindents [TIndent 1] @?= []
 case_parse_cleanupindents_1 = tokcleanupindents [TNewLine] @?= [TNewLine]
@@ -146,7 +146,7 @@ case_parse_cleanupindents_4'' = tokcleanupindents toks @?= toks'
 j1 = Just (ConstInt 1)
 tokcleanupindents = map snd . _cleanupindents . map (newPos "test" 0 0,)
 
-case_parse_kwargs = parseBody "unique(reads,maxCopies=2)\n" @?= [FunctionCall (FuncName "unique") (Lookup Nothing (Variable "reads")) [(Variable "maxCopies", ConstInt 2)] Nothing]
+case_parse_kwargs = parseBody "unique(reads,maxCopies=2)\n" @?= [FunctionCall (FuncName "unique") (Lookup Nothing (mkVariable "reads")) [(mkVariable "maxCopies", ConstInt 2)] Nothing]
 
-case_parse_methods_kwargs_only = parseBody "sf.filter(min_identity_pc=90)\n" @?= [MethodCall (MethodName "filter") (Lookup Nothing (Variable "sf")) Nothing [(Variable "min_identity_pc", ConstInt 90)]]
+case_parse_methods_kwargs_only = parseBody "sf.filter(min_identity_pc=90)\n" @?= [MethodCall (MethodName "filter") (Lookup Nothing (mkVariable "sf")) Nothing [(mkVariable "min_identity_pc", ConstInt 90)]]
 

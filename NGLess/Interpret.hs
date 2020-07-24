@@ -253,7 +253,7 @@ gcTemps = do
         forM_ garbage removeIfTemporary
 
 interpretTop :: Expression -> InterpretationEnvIO ()
-interpretTop (Assignment (Variable var) val) = traceExpr "assignment" val >> interpretTopValue val >>= setVariableValue var
+interpretTop (Assignment var val) = traceExpr "assignment" val >> interpretTopValue val >>= setVariableValue (varName var)
 interpretTop (FunctionCall f e args b) = void $ interpretFunction f e args b
 interpretTop (Condition c ifTrue ifFalse) = do
     c' <- runInROEnvIO (interpretExpr c >>= boolOrTypeError "interpreting if condition")
@@ -269,13 +269,14 @@ interpretTopValue (ListExpression es) = NGOList <$> mapM interpretTopValue es
 interpretTopValue e = runInROEnvIO (interpretExpr e)
 
 interpretExpr :: Expression -> InterpretationROEnv NGLessObject
-interpretExpr (Lookup _ (Variable v)) = lookupVariable v >>= \case
-        Nothing -> throwScriptError ("Could not lookup variable `"++show v++"`")
+interpretExpr (Lookup _ v) = lookupVariable (varName v) >>= \case
+        Nothing -> throwScriptError ("Could not lookup variable `"++show (varName v)++"`")
         Just r' -> return r'
-interpretExpr (BuiltinConstant (Variable "STDIN")) = return (NGOString "/dev/stdin")
-interpretExpr (BuiltinConstant (Variable "STDOUT")) = return (NGOString "/dev/stdout")
-interpretExpr (BuiltinConstant (Variable "__VOID")) = return NGOVoid
-interpretExpr (BuiltinConstant (Variable v)) = throwShouldNotOccur ("Unknown builtin constant '" ++ show v ++ "': it should not have been accepted.")
+interpretExpr (BuiltinConstant v) = case varName v of
+        "STDIN" -> return (NGOString "/dev/stdin")
+        "STDOUT" -> return (NGOString "/dev/stdout")
+        "__VOID" -> return NGOVoid
+        n ->  throwShouldNotOccur ("Unknown builtin constant '" ++ show n ++ "': it should not have been accepted.")
 interpretExpr (ConstStr t) = return (NGOString t)
 interpretExpr (ConstBool b) = return (NGOBool b)
 interpretExpr (ConstSymbol s) = return (NGOSymbol s)
@@ -296,9 +297,9 @@ interpretExpr (ListExpression e) = NGOList <$> mapM interpretExpr e
 interpretExpr (MethodCall met self arg args) = do
     self' <- interpretExpr self
     arg' <- fmapMaybeM interpretExpr arg
-    args' <- forM args $ \(Variable v, e) -> do
+    args' <- forM args $ \(v, e) -> do
         e' <- interpretExpr e
-        return (v, e')
+        return (varName v, e')
     executeMethod met self' arg' args'
 interpretExpr not_expr = throwShouldNotOccur ("Expected an expression, received " ++ show not_expr ++ " (in interpretExpr)")
 
@@ -409,7 +410,7 @@ writeAndContinue q = CL.iterM (liftIO . atomically . TQ.writeTBMQueue q)
 
 executePreprocess :: NGLessObject -> [(T.Text, NGLessObject)] -> Block -> InterpretationEnvIO NGLessObject
 executePreprocess (NGOList e) args _block = NGOList <$> mapM (\x -> executePreprocess x args _block) e
-executePreprocess (NGOReadSet name (ReadSet pairs singles)) args (Block (Variable var) block) = do
+executePreprocess (NGOReadSet name (ReadSet pairs singles)) args (Block var block) = do
         -- This is a bit complex, but preprocess was slow at first and we try
         -- to take full advantage of parallelism.
         --
@@ -472,7 +473,7 @@ executePreprocess (NGOReadSet name (ReadSet pairs singles)) args (Block (Variabl
 
             C.runConduit $
                 asSource singles
-                    .| CAlg.asyncMapEitherC mapthreads (vMapMaybeLifted (runInterpretationRO env . interpretPBlock1 block var))
+                    .| CAlg.asyncMapEitherC mapthreads (vMapMaybeLifted (runInterpretationRO env . interpretPBlock1 block (varName var)))
                     .| void (write mapthreads out3 q3)
 
             forM_ [k1, k2, k3] release
@@ -500,8 +501,8 @@ executePreprocess (NGOReadSet name (ReadSet pairs singles)) args (Block (Variabl
     where
         intercalate :: Bool -> (ShortRead, ShortRead) -> InterpretationROEnv (Maybe PreprocessPairOutput)
         intercalate keepSingles (r1, r2) = do
-                r1' <- interpretPBlock1 block var r1
-                r2' <- interpretPBlock1 block var r2
+                r1' <- interpretPBlock1 block (varName var) r1
+                r2' <- interpretPBlock1 block (varName var) r2
                 return $ case (r1',r2') of
                     (Just r1'', Just r2'') -> Just (Paired r1'' r2'')
                     (Just r, Nothing) -> if keepSingles
@@ -535,7 +536,7 @@ executePrint (NGOString s) [] = liftIO (T.putStr s) >> return NGOVoid
 executePrint err  _ = throwScriptError ("Cannot print " ++ show err)
 
 executeSelectWBlock :: NGLessObject -> [(T.Text, NGLessObject)] -> Block -> InterpretationEnvIO NGLessObject
-executeSelectWBlock input@NGOMappedReadSet{ nglSamFile = isam} args (Block (Variable var) body) = do
+executeSelectWBlock input@NGOMappedReadSet{ nglSamFile = isam} args (Block var body) = do
         paired <- lookupBoolOrScriptErrorDef (return True) "select" "paired" args
         outputHeader <- lookupBoolOrScriptErrorDef (return True) "select" "__output_header" args
         let (samfp, istream) = asSamStream isam
@@ -576,9 +577,9 @@ executeSelectWBlock input@NGOMappedReadSet{ nglSamFile = isam} args (Block (Vari
         selectBlock _ [] = return []
         selectBlock _ [SamHeader line] = return [BB.byteString line]
         selectBlock doReinject mappedreads  = do
-                    mrs' <- interpretBlock1 (BlockVariables1 var (NGOMappedRead mappedreads)) body
+                    mrs' <- interpretBlock1 (BlockVariables1 (varName var) (NGOMappedRead mappedreads)) body
                     if blockStatus mrs' `elem` [BlockContinued, BlockOk]
-                        then case lookupBlockVar var (blockValues mrs') of
+                        then case lookupBlockVar (varName var) (blockValues mrs') of
                             Just (NGOMappedRead []) -> return []
                             Just (NGOMappedRead rs) -> do
                                 rs' <- runNGLess $ reinjectSequences mappedreads rs
@@ -591,9 +592,9 @@ executeSelectWBlock expr _ _ = unreachable ("Select with block, unexpected argum
 
 interpretArguments :: [(Variable, Expression)] -> InterpretationEnvIO [(T.Text, NGLessObject)]
 interpretArguments args =
-    forM args $ \(Variable v, e) -> do
+    forM args $ \(v, e) -> do
         e' <- interpretTopValue e
-        return (v, e')
+        return (varName v, e')
 
 lookupBlockVar :: T.Text -> BlockVariables -> Maybe NGLessObject
 lookupBlockVar n' (BlockVariables1 n v)
@@ -613,7 +614,7 @@ interpretBlock vs (e:es) = do
         _ -> return r
 
 interpretBlock1 :: BlockVariables -> Expression -> InterpretationROEnv BlockResult
-interpretBlock1 vs (Optimized (LenThresholdDiscard (Variable v) bop thresh)) = case lookupBlockVar v vs of
+interpretBlock1 vs (Optimized (LenThresholdDiscard v bop thresh)) = case lookupBlockVar (varName v) vs of
         Just (NGOShortRead r) -> do
             let status = if binInt bop (srLength r) thresh
                     then BlockDiscarded
@@ -627,15 +628,15 @@ interpretBlock1 vs (Optimized (LenThresholdDiscard (Variable v) bop thresh)) = c
         binInt BOpLTE a b = a <= b
         binInt BOpGTE a b = a >= b
         binInt _ _ _ = error "This is impossible: the optimized transformation should ensure this case never exists"
-interpretBlock1 vs (Optimized (SubstrimReassign (Variable v) mq)) = case lookupBlockVar v vs  of
+interpretBlock1 vs (Optimized (SubstrimReassign v mq)) = case lookupBlockVar (varName v) vs  of
         Just (NGOShortRead r) -> do
             let nv = NGOShortRead $! substrim mq r
-            vs' <- updateBlockVar vs v nv
+            vs' <- updateBlockVar vs (varName v) nv
             return $! BlockResult BlockOk vs'
         _ -> throwShouldNotOccur ("Variable name not found in optimized processing " ++ show v)
-interpretBlock1 vs (Assignment (Variable n) val) = do
+interpretBlock1 vs (Assignment n val) = do
     val' <- interpretBlockExpr vs val
-    vs' <- updateBlockVar vs n val'
+    vs' <- updateBlockVar vs (varName n) val'
     return $ BlockResult BlockOk vs'
 interpretBlock1 vs Discard = return (BlockResult BlockDiscarded vs)
 interpretBlock1 vs Continue = return (BlockResult BlockContinued vs)
@@ -655,18 +656,18 @@ interpretPreProcessExpr (FunctionCall (FuncName "substrim") var args _) = do
     r <- interpretExpr var >>= \case
                         NGOShortRead r -> return r
                         _ -> throwShouldNotOccur "Wrong type in Interpret.hs:interpretExpr"
-    args' <- forM args $ \(Variable v, e) -> do
+    args' <- forM args $ \(v, e) -> do
         e' <- interpretExpr e
-        return (v, e')
+        return (varName v, e')
     mq <- fromInteger <$> lookupIntegerOrScriptErrorDef (return 0) "substrim argument" "min_quality" args'
     return . NGOShortRead $ substrim mq r
 interpretPreProcessExpr (FunctionCall (FuncName "endstrim") var args _) = do
     r <- interpretExpr var >>= \case
                         NGOShortRead r -> return r
                         _ -> throwShouldNotOccur "Wrong type in Interpret.hs:interpretExpr"
-    args' <- forM args $ \(Variable v, e) -> do
+    args' <- forM args $ \(v, e) -> do
         e' <- interpretExpr e
-        return (v, e')
+        return (varName v, e')
     mq <- fromInteger <$> lookupIntegerOrScriptErrorDef (return 0) "endstrim argument" "min_quality" args'
     ends <- lookupSymbolOrScriptErrorDef (return "both") "endstrim argument" "from_ends" args'
     ends' <- case ends of
@@ -679,9 +680,9 @@ interpretPreProcessExpr (FunctionCall (FuncName "smoothtrim") var args _) = do
     r <- interpretExpr var >>= \case
                         NGOShortRead r -> return r
                         _ -> throwShouldNotOccur "Wrong type in Interpret.hs:interpretExpr"
-    args' <- forM args $ \(Variable v, e) -> do
+    args' <- forM args $ \(v, e) -> do
         e' <- interpretExpr e
-        return (v, e')
+        return (varName v, e')
     mq <- fromInteger <$> lookupIntegerOrScriptErrorDef (return 0) "smoothtrim argument" "min_quality" args'
     w <- fromInteger <$> lookupIntegerOrScriptErrorDef (return 0) "smoothtrim argument" "window" args'
     return . NGOShortRead $ smoothtrim w mq r

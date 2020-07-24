@@ -50,7 +50,7 @@ case_indent_empty_line = isOkTypesText
 
 
 case_invalid_func_fastq = isError $ checktypes [] $
-    Script Nothing [(0,FunctionCall (FuncName "fastq") (ConstStr "fastq.fq") [(Variable "fname", ConstInt 10)] Nothing)]
+    Script Nothing [(0,FunctionCall (FuncName "fastq") (ConstStr "fastq.fq") [(mkVariable "fname", ConstInt 10)] Nothing)]
 
 -- unique
 

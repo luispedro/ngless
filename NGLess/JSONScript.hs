@@ -38,13 +38,13 @@ instance ToJSON EncExpression where
     toJSON (EncExpression e) = toJSONEx e
 
 toJSONEx :: Expression -> Value
-toJSONEx (Lookup t (Variable n)) = object [jsonType "lookup", "name" .= toJSON n, "ngless-type" .= encodeMaybeType t]
+toJSONEx (Lookup t n) = object [jsonType "lookup", "name" .= toJSON (varName n), "ngless-type" .= encodeMaybeType t]
 toJSONEx (ConstStr t) = toJSON t
 toJSONEx (ConstInt i) = toJSON i
 toJSONEx (ConstDouble d) = toJSON d
 toJSONEx (ConstBool b) = toJSON b
 toJSONEx (ConstSymbol s) = toJSON (T.concat ["{", s, "}"])
-toJSONEx (BuiltinConstant (Variable v)) = toJSON v
+toJSONEx (BuiltinConstant v) = toJSON (varName v)
 toJSONEx (ListExpression exprs) = toJSON (toJSONEx <$> exprs)
 toJSONEx Continue = object [jsonType "control0", "op" `sP` "continue"]
 toJSONEx Discard = object [jsonType "control0", "op" `sP` "discard"]
@@ -52,7 +52,7 @@ toJSONEx (UnaryOp uop e) = object [jsonType "uop", "op" .= encodeUOp uop, "arg" 
 toJSONEx (BinaryOp bop el er) = object [jsonType "binop", "op" .= encodeBOp bop, "left" .= toJSONEx el, "right" .= toJSONEx er]
 toJSONEx (Condition ec eT eF) = object [jsonType "control", "op" `sP` "if", "cond" .= toJSONEx ec, "if-true" .= toJSONEx eT, "if-false" .= toJSONEx eF]
 toJSONEx (IndexExpression e ix) = object [jsonType "index", "arg" .= toJSONEx e, "index" .= toJSONIndex ix]
-toJSONEx (Assignment (Variable n) e) = object [jsonType "assignment", "target" .= toJSON n, "value" .= toJSONEx e]
+toJSONEx (Assignment n e) = object [jsonType "assignment", "target" .= toJSON (varName n), "value" .= toJSONEx e]
 toJSONEx (FunctionCall (FuncName fn) e kwargs block) = object [jsonType "function", "fname" .= toJSON fn, "arg0" .= toJSONEx e, "kwargs" .= toJSONKwArgs kwargs, "block" .= encodeBlock block]
 toJSONEx (MethodCall (MethodName mn) ethis marg kwargs) = object [jsonType "method", "mname" .= toJSON mn, "this" .= toJSONEx ethis, "arg0" .= toJSON (EncExpression <$> marg), "kwargs" .= toJSONKwArgs kwargs]
 toJSONEx (Sequence es) = object [jsonType "control", "op" `sP` "sequence", "args" .= toJSON (toJSONEx <$> es)]
@@ -61,13 +61,13 @@ toJSONEx (Optimized oe) = object [jsonType "optimized", "value" .= encodeOpt oe]
 toJSONIndex (IndexOne e) = object [jsonType "index1", "arg" .= toJSONEx e]
 toJSONIndex (IndexTwo e0 e1) = object [jsonType "index2", "left" .= maybe Null toJSONEx e0, "right" .= maybe Null toJSONEx e1]
 
-toJSONKwArgs kwargs = object [n .= toJSONEx e | (Variable n, e) <- kwargs]
+toJSONKwArgs kwargs = object [varName n .= toJSONEx e | (n, e) <- kwargs]
 
-encodeOpt (LenThresholdDiscard (Variable n) bop t) = object [jsonType "len-threshold", "name" .= toJSON n, "op" .= encodeBOp bop, "thresh" .= toJSON t]
-encodeOpt (SubstrimReassign (Variable n) mq) = object [jsonType "substrim-reassign", "name" .= toJSON n, "minqual" .= toJSON mq]
+encodeOpt (LenThresholdDiscard n bop t) = object [jsonType "len-threshold", "name" .= toJSON (varName n), "op" .= encodeBOp bop, "thresh" .= toJSON t]
+encodeOpt (SubstrimReassign n mq) = object [jsonType "substrim-reassign", "name" .= toJSON (varName n), "minqual" .= toJSON mq]
 
 encodeBlock Nothing = Null
-encodeBlock (Just (Block (Variable n) e)) = object [jsonType "block", "variables" .= [toJSON n], "body" .= toJSONEx e]
+encodeBlock (Just (Block var e)) = object [jsonType "block", "variables" .= [toJSON (varName var)], "body" .= toJSONEx e]
 
 encodeBOp :: BOp -> T.Text
 encodeBOp BOpAdd = "add"

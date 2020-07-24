@@ -5,7 +5,9 @@
 module Language
     ( Expression(..)
     , OptimizedExpression(..)
-    , Variable(..)
+    , Variable
+    , mkVariable
+    , varName
     , UOp(..)
     , BOp(..)
     , Index(..)
@@ -35,6 +37,8 @@ import FileOrStream
 
 newtype Variable = Variable T.Text
     deriving (Eq, Ord, Show)
+mkVariable = Variable
+varName (Variable v) = v
 
 newtype FuncName = FuncName { unwrapFuncName :: T.Text }
     deriving (Eq, Ord)

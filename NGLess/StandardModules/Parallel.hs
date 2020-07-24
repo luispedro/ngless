@@ -558,7 +558,7 @@ addLockHash script = pureTransform addLockHash' script
     where
         addLockHash' :: Expression -> Expression
         addLockHash' (FunctionCall (FuncName "lock1") expr kwargs block) =
-            FunctionCall (FuncName "lock1") expr ((Variable "__hash", ConstStr h):kwargs) block
+            FunctionCall (FuncName "lock1") expr ((mkVariable "__hash", ConstStr h):kwargs) block
             where
                 h = T.pack . MD5.md5s . MD5.Str . show $ map snd script
         addLockHash' e = e

@@ -173,7 +173,7 @@ funcname = FuncName   <$> word <?> "function name"
 method   = MethodName <$> word <?> "method name"
 
 pairedKwArgs = (++) <$> (wrap <$> expression) <*> (kwargs <* operator ')')
-    where wrap e = [(Variable "second", e)]
+    where wrap e = [(mkVariable "second", e)]
 
 kwargs = many (operator ',' *> kwarg) <?> "keyword argument list"
 kwarg = kwarg' <?> "keyword argument"
@@ -217,7 +217,7 @@ block = do
                             if level /= level'
                                 then fail "indentation changed"
                                 else expression <* many eol)
-variable = Variable <$> word <?> "variable"
+variable = mkVariable <$> word <?> "variable"
 
 ngless_header = Header <$> (many eol *> ngless_version <* many eol) <*> many (import_mod <* many eol)
 ngless_version = ngless_version' <?> "ngless version declararion"
