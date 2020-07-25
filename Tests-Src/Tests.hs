@@ -45,6 +45,7 @@ import qualified Data.GFF as GFF
 import Tests.Utils
 import Tests.FastQ (tgroup_FastQ)
 import Tests.Validation (tgroup_Validation)
+import Tests.Variable (tgroup_Variable)
 import Tests.Select (tgroup_Select)
 import Tests.Types (tgroup_Types)
 import Tests.Count (tgroup_Count)
@@ -57,6 +58,7 @@ import Tests.NGLessAPI (tgroup_NGLessAPI)
 
 test_FastQ      = [tgroup_FastQ]
 test_Validation = [tgroup_Validation]
+test_Variable   = [tgroup_Variable]
 test_Count      = [tgroup_Count]
 test_Parse      = [tgroup_Parse]
 test_Types      = [tgroup_Types]
