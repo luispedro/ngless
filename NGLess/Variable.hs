@@ -5,6 +5,7 @@
 module Variable
     ( Variable
     , mkVariable
+    , ixVariable
     , varName
     ) where
 
@@ -41,3 +42,5 @@ mkVariable n = unsafePerformIO . atomically $ do
 varName :: Variable -> T.Text
 varName (Variable v _) = v
 
+ixVariable :: Variable -> Int
+ixVariable (Variable _ ix) = ix

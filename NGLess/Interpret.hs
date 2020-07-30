@@ -59,7 +59,7 @@ import Control.Monad.Trans.Resource
 import qualified Data.ByteString.Lazy as BL
 import qualified Data.ByteString.Builder as BB
 import qualified Data.ByteString as B
-import qualified Data.Map.Strict as Map
+import qualified Data.IntMap as IntMap
 
 import qualified Data.Text as T
 import qualified Data.Text.IO as T
@@ -87,6 +87,7 @@ import System.FilePath ((</>))
 import Data.List (find)
 import GHC.Conc                 (getNumCapabilities)
 
+import Variable
 import Language
 import FileManagement
 import FileOrStream
@@ -111,12 +112,13 @@ import Utils.Suggestion
 import Utils.Conduit
 
 
-type SimpleVariableMap = Map.Map T.Text NGLessObject
+type SimpleVariableMap = IntMap.IntMap NGLessObject
 data VariableMap = VariableMapGlobal SimpleVariableMap
                     | VariableMapBlock BlockVariables SimpleVariableMap
 
-variableMapLookup v (VariableMapGlobal sm) = Map.lookup v sm
-variableMapLookup v (VariableMapBlock b sm) = lookupBlockVar v b <|> Map.lookup v sm
+variableMapLookup :: Variable -> VariableMap -> Maybe NGLessObject
+variableMapLookup v (VariableMapGlobal sm) = IntMap.lookup (ixVariable v) sm
+variableMapLookup v (VariableMapBlock b sm) = lookupBlockVar (varName v) b <|> IntMap.lookup (ixVariable v) sm
 
 data NGLInterpretEnv = NGLInterpretEnv
     { ieModules :: [Module]
@@ -163,10 +165,10 @@ autoComprehendNB f e args = f e args
 setlno :: Int -> InterpretationEnvIO ()
 setlno !n = runNGLessIO $ updateNglEnvironment (\e -> e { ngleLno = Just n } )
 
-lookupVariable :: T.Text -> InterpretationROEnv (Maybe NGLessObject)
+lookupVariable :: Variable -> InterpretationROEnv (Maybe NGLessObject)
 lookupVariable !k = liftM2 (<|>)
-    (lookupConstant k)
     (variableMapLookup k . ieVariableEnv <$> ask)
+    (lookupConstant $ varName k)
 
 lookupConstant :: T.Text -> InterpretationROEnv (Maybe NGLessObject)
 lookupConstant !k = do
@@ -177,9 +179,9 @@ lookupConstant !k = do
         _ -> throwShouldNotOccur ("Multiple hits found for constant " ++ T.unpack k)
 
 
-setVariableValue :: T.Text -> NGLessObject -> InterpretationEnvIO ()
+setVariableValue :: Variable -> NGLessObject -> InterpretationEnvIO ()
 setVariableValue !k !v = modify $ \case
-                            (NGLInterpretEnv mods (VariableMapGlobal vm)) -> (NGLInterpretEnv mods (VariableMapGlobal (Map.insert k v vm)))
+                            (NGLInterpretEnv mods (VariableMapGlobal vm)) -> (NGLInterpretEnv mods (VariableMapGlobal (IntMap.insert (ixVariable k) v vm)))
                             _ -> error "This should never happen (setVariableValue)"
 
 findFunction :: FuncName -> InterpretationEnvIO (NGLessObject -> KwArgsValues -> NGLessIO NGLessObject)
@@ -210,7 +212,7 @@ traceExpr m e =
 
 interpret :: [Module] -> [(Int,Expression)] -> NGLessIO ()
 interpret modules es = do
-    evalStateT (interpretIO es) (NGLInterpretEnv modules $ VariableMapGlobal Map.empty)
+    evalStateT (interpretIO es) (NGLInterpretEnv modules $ VariableMapGlobal IntMap.empty)
     outputListLno InfoOutput Nothing ["Interpretation finished."]
 
 interpretIO :: [(Int, Expression)] -> InterpretationEnvIO ()
@@ -223,7 +225,7 @@ interpretIO es = forM_ es $ \(ln,e) -> do
 gcTemps :: InterpretationEnvIO ()
 gcTemps = do
     active <- gets $ \case
-                NGLInterpretEnv _ (VariableMapGlobal t) -> Map.elems t
+                NGLInterpretEnv _ (VariableMapGlobal t) -> IntMap.elems t
                 _ -> error "gcTemps in BLOCK?!"
     let extractFiles = \case
                             NGOString _ -> []
@@ -253,7 +255,7 @@ gcTemps = do
         forM_ garbage removeIfTemporary
 
 interpretTop :: Expression -> InterpretationEnvIO ()
-interpretTop (Assignment var val) = traceExpr "assignment" val >> interpretTopValue val >>= setVariableValue (varName var)
+interpretTop (Assignment var val) = traceExpr "assignment" val >> interpretTopValue val >>= setVariableValue var
 interpretTop (FunctionCall f e args b) = void $ interpretFunction f e args b
 interpretTop (Condition c ifTrue ifFalse) = do
     c' <- runInROEnvIO (interpretExpr c >>= boolOrTypeError "interpreting if condition")
@@ -269,7 +271,7 @@ interpretTopValue (ListExpression es) = NGOList <$> mapM interpretTopValue es
 interpretTopValue e = runInROEnvIO (interpretExpr e)
 
 interpretExpr :: Expression -> InterpretationROEnv NGLessObject
-interpretExpr (Lookup _ v) = lookupVariable (varName v) >>= \case
+interpretExpr (Lookup _ v) = lookupVariable v >>= \case
         Nothing -> throwScriptError ("Could not lookup variable `"++show (varName v)++"`")
         Just r' -> return r'
 interpretExpr (BuiltinConstant v) = case varName v of
